@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AI Code Review Assistant</title>
+
+<style>
+body{
+  font-family: Arial, sans-serif;
+  background:#0f172a;
+  color:white;
+  padding:20px;
+}
+.container{
+  max-width:900px;
+  margin:auto;
+}
+textarea,input,select,button{
+  font-size:14px;
+}
+textarea{
+  width:100%;
+  height:180px;
+  background:#020617;
+  color:white;
+  border:1px solid #334155;
+  border-radius:12px;
+  padding:12px;
+}
+input{
+  width:100%;
+  padding:10px;
+  border-radius:10px;
+  border:1px solid #334155;
+  background:#020617;
+  color:white;
+}
+button{
+  padding:10px 14px;
+  border-radius:8px;
+  border:none;
+  cursor:pointer;
+  margin-right:6px;
+  background:#22c55e;
+  color:black;
+}
+select{
+  padding:10px;
+  border-radius:8px;
+}
+
+/* SCORE CARD */
+#scoreCard{
+  margin-top:25px;
+  padding:25px;
+  border-radius:20px;
+  background:linear-gradient(135deg,#020617,#1e293b);
+  box-shadow:0 20px 40px rgba(0,0,0,0.6);
+  text-align:center;
+}
+.ring-container{
+  position:relative;
+  width:180px;
+  height:180px;
+  margin:auto;
+}
+svg{transform:rotate(-90deg);}
+circle{
+  fill:none;
+  stroke-width:14;
+}
+.bg{stroke:#334155;}
+.progress{
+  stroke:#22c55e;
+  stroke-dasharray:440;
+  stroke-dashoffset:440;
+  transition:stroke-dashoffset 1s ease,stroke 0.4s;
+}
+#scoreText{
+  position:absolute;
+  top:50%;
+  left:50%;
+  transform:translate(-50%,-50%);
+  font-size:32px;
+  font-weight:bold;
+}
+.glow{
+  filter:drop-shadow(0 0 15px rgba(34,197,94,0.9));
+  animation:pulse 1.5s infinite;
+}
+@keyframes pulse{
+  0%{transform:scale(1);}
+  50%{transform:scale(1.05);}
+  100%{transform:scale(1);}
+}
+
+/* CHAT */
+#chat{
+  margin-top:25px;
+  background:#020617;
+  padding:15px;
+  border-radius:14px;
+  max-height:300px;
+  overflow-y:auto;
+}
+.user{color:#60a5fa;margin-bottom:8px;}
+.bot{color:#a7f3d0;margin-bottom:8px;}
+.thinking{color:#facc15;font-style:italic;}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h2>AI Code Review Assistant</h2>
+
+<!-- INPUT MODE -->
+<div style="margin-bottom:10px;">
+  <button onclick="showPaste()">📋 Paste Code</button>
+  <button onclick="showUpload()">📁 Upload File</button>
+  <button onclick="showGithub()">🔗 GitHub URL</button>
+</div>
+
+<textarea id="code" placeholder="Paste your code here..."></textarea>
+<input type="file" id="fileInput" style="display:none;margin-top:10px;">
+<input type="text" id="githubUrl" style="display:none;margin-top:10px;"
+ placeholder="Paste GitHub file URL here">
+
+<br><br>
+<select id="language">
+  <option>Auto Detect</option>
+  <option>HTML/CSS</option>
+  <option>JavaScript</option>
+  <option>Python</option>
+  <option>Java</option>
+  <option>PHP</option>
+  <option>C#</option>
+</select>
+
+<button onclick="review()">Review Code</button>
+
+<!-- SCORE -->
+<div id="scoreCard">
+  <h3>Code Quality Score</h3>
+  <div class="ring-container">
+    <svg width="180" height="180">
+      <circle class="bg" cx="90" cy="90" r="70"/>
+      <circle class="progress" cx="90" cy="90" r="70"/>
+    </svg>
+    <div id="scoreText">--</div>
+  </div>
+</div>
+
+<div id="chat"></div>
+</div>
+
+<script>
+const codeBox=document.getElementById("code");
+const fileInput=document.getElementById("fileInput");
+const githubUrl=document.getElementById("githubUrl");
+
+// INPUT TOGGLE
+function showPaste(){
+  codeBox.style.display="block";
+  fileInput.style.display="none";
+  githubUrl.style.display="none";
+}
+function showUpload(){
+  codeBox.style.display="none";
+  fileInput.style.display="block";
+  githubUrl.style.display="none";
+}
+function showGithub(){
+  codeBox.style.display="none";
+  fileInput.style.display="none";
+  githubUrl.style.display="block";
+}
+
+// FILE UPLOAD
+fileInput.addEventListener("change",()=>{
+  const file=fileInput.files[0];
+  if(!file) return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    codeBox.value=e.target.result;
+    showPaste();
+  };
+  reader.readAsText(file);
+});
+
+// GITHUB FETCH
+async function loadGithubCode(){
+  const url=githubUrl.value;
+  if(!url) return "";
+  const raw=url.replace("github.com","raw.githubusercontent.com")
+               .replace("/blob/","/");
+  const res=await fetch(raw);
+  return await res.text();
+}
+
+// AUTO DETECT
+function detect(code){
+  if(code.includes("<html")) return "HTML/CSS";
+  if(code.includes("console.log")) return "JavaScript";
+  if(code.includes("print(")) return "Python";
+  if(code.includes("System.out")) return "Java";
+  if(code.includes("<?php")) return "PHP";
+  if(code.includes("using System")) return "C#";
+  return "Unknown";
+}
+
+// ERRORS
+function findErrors(code,lang){
+  let e=[];
+  if(lang==="JavaScript" && code.includes("console.log(") && !code.includes(");"))
+    e.push("Missing closing );");
+  if(lang==="HTML/CSS" && !code.includes("</html>"))
+    e.push("Missing </html> tag");
+  return e;
+}
+
+// WARNINGS
+function findWarnings(code,lang){
+  let w=[];
+  if(lang==="HTML/CSS"){
+    if(!code.includes("<!DOCTYPE html>")) w.push("Missing <!DOCTYPE html>");
+    if(!code.includes("<head>")) w.push("Missing <head> section");
+  }
+  return w;
+}
+
+// SCORE GRAPH
+function updateScoreGraph(score){
+  const c=document.querySelector(".progress");
+  const t=document.getElementById("scoreText");
+  const r=70;
+  const circ=2*Math.PI*r;
+  c.style.strokeDashoffset=circ-(score/100)*circ;
+
+  if(score<50){c.style.stroke="#ef4444";c.classList.remove("glow");}
+  else if(score<80){c.style.stroke="#facc15";c.classList.remove("glow");}
+  else{c.style.stroke="#22c55e";c.classList.add("glow");}
+  t.innerText=score;
+}
+
+// TYPING
+function typeText(el,text){
+  el.innerText="";
+  let i=0;
+  let t=setInterval(()=>{
+    el.innerText+=text[i++];
+    if(i>=text.length) clearInterval(t);
+  },20);
+}
+
+// REVIEW
+function review(){
+  if(githubUrl.style.display==="block"){
+    loadGithubCode().then(t=>{
+      codeBox.value=t;
+      showPaste();
+      review();
+    });
+    return;
+  }
+
+  const code=codeBox.value;
+  const langSel=document.getElementById("language").value;
+  const chat=document.getElementById("chat");
+
+  if(!code.trim()){
+    chat.innerHTML+=`<div class="bot">❌ Paste some code first.</div>`;
+    return;
+  }
+
+  chat.innerHTML+=`<div class="user">You: Review my code</div>`;
+  chat.innerHTML+=`<div class="thinking">Bot is analyzing...</div>`;
+  chat.scrollTop=chat.scrollHeight;
+
+  setTimeout(()=>{
+    let lang=langSel==="Auto Detect"?detect(code):langSel;
+    let err=findErrors(code,lang);
+    let warn=findWarnings(code,lang);
+    let score=100;
+    let msg="";
+
+    if(err.length){
+      score=40;
+      msg+="❌ Errors found:\n";
+      err.forEach(e=>msg+="• "+e+"\n");
+    }
+    if(warn.length){
+      score-=warn.length*5;
+      msg+="\n⚠️ Improvements suggested:\n";
+      warn.forEach(w=>msg+="• "+w+"\n");
+    }
+    if(!err.length && !warn.length)
+      msg="✅ No errors or warnings found.\nExcellent code structure!";
+
+    updateScoreGraph(score);
+
+    const bot=document.createElement("div");
+    bot.className="bot";
+    chat.replaceChild(bot,chat.lastChild);
+    typeText(bot,`Language: ${lang}\nScore: ${score}/100\n\n${msg}`);
+    chat.scrollTop=chat.scrollHeight;
+  },1200);
+}
+</script>
+</body>
+</html>
